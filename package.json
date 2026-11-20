@@ -1,0 +1,11 @@
+{
+  "name": "recount",
+  "version": "1.0.0",
+  "description": "Paste a results section; Recount recomputes every p-value, GRIM-checks every mean and checks every percentage.",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "serve": "node tools/serve.js"
+  },
+  "license": "MIT"
+}
