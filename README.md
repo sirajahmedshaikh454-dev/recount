@@ -46,7 +46,7 @@ The distributions (t, F, chi-square, normal) are implemented from scratch, with 
 
 - `tools/make_fixtures.py` generates **170 reference p-values** from SciPy over a grid of statistics and degrees of freedom.
 - `tests/dist.test.js` requires agreement to **1e-8 relative error**, including very small p-values.
-- `tests/recount.test.js` has 17 behaviour tests: rounding intervals, decision errors, one-tailed hint, either-order GRIM, the classic Brown and Heathers example (5.19 with n = 28 is impossible), percentages, odd spacing and unicode minus, and a speed check on a 300 KB hostile input.
+- `tests/recount.test.js` has 23 behaviour tests: rounding intervals, decision errors, one-tailed hint, either-order GRIM, the classic Brown and Heathers example (5.19 with n = 28 is impossible), percentages, odd spacing and unicode minus, zero degrees of freedom, and speed checks on 300 KB to 500 KB hostile inputs. An independent review also ran about 130 correct APA-style sentences (including Welch df, negative t, large t) through it with no false alarms.
 
 Run them: `npm test` (Node 18 or newer, uses the built-in test runner).
 
@@ -71,7 +71,7 @@ tools/            fixture generator and a tiny static server (npm run serve)
 
 ## Skills & methodology
 
-**Method.** Research first: I surveyed existing tools and surveys before choosing the idea, and dropped my first candidate (a subscription detector for bank statements) when the search showed that space was already crowded. Then bottom-up: the mathematics first, proven against an independent implementation (SciPy), then the extraction and checks, then the page. Every step was committed and pushed after the tests passed. Two bugs were found by testing rather than by luck: a quadratic-time percentage pattern (caught by a hostile-input speed test) and my own wrong test expectations about decision errors (the engine was right).
+**Method.** Research first: I surveyed existing tools and surveys before choosing the idea, and dropped my first candidate (a subscription detector for bank statements) when the search showed that space was already crowded. Then bottom-up: the mathematics first, proven against an independent implementation (SciPy), then the extraction and checks, then the page. Every step was committed and pushed after the tests passed. Bugs found by testing rather than by luck: a quadratic-time percentage pattern (hostile-input speed test), my own wrong test expectations about decision errors (the engine was right), and, from the review, a number pattern that froze the page for minutes on a long run of digits, a mean-and-n match that swallowed a test sitting between them, a mean paired with another group's n, a season (`2019/20`) read as a fraction, and NaN output for zero degrees of freedom. All six are fixed with regression tests.
 
 **Skills and tools.** Claude Code with web search for the literature and the competing tools; SciPy as the independent oracle for the numerics; the built-in browser to verify desktop and phone widths, dark and light colour schemes, and a script-injection attempt in the pasted text; an independent read-only review subagent that tried to break the checker with realistic correct and incorrect sentences and adversarial input; the `ponytail` style (no dependencies, no build step, smallest working design).
 

@@ -87,3 +87,36 @@ test('the pattern engine survives long hostile input quickly', () => {
   analyze('M = 1.5 ' + 'x'.repeat(200000) + ' t(' + '9'.repeat(100000));
   assert.ok(Date.now() - t0 < 2000);
 });
+
+// ---- found by an independent review ----
+test('long digit runs are linear, not quadratic', () => {
+  for (const pre of ['t(30) = ', 'M = ', 'z = ', 'r(3) = ', 'χ(1) = ']) {
+    const t0 = Date.now();
+    analyze(pre + '1'.repeat(100000));
+    assert.ok(Date.now() - t0 < 1500, pre);
+  }
+});
+test('a mean and n around a test do not swallow the test', () => {
+  const r = analyze('M = 5.2, SD = 1.1, t(28) = 2.20, p = .9, n = 30');
+  assert.ok(r.results.some((x) => x.kind === 't' && x.status !== 'ok'), JSON.stringify(r.results.map((x) => [x.kind, x.status])));
+});
+test('a mean is not paired with another group\'s n', () => {
+  assert.strictEqual(analyze('Group A (M = 3.47, SD = 1.1) and group B (n = 25)').results.length, 0);
+  assert.strictEqual(one('M = 5.19 (SD = 1.2), n = 28').status, 'inconsistent');            // SD bracket before n still pairs
+});
+test('a season is not a fraction', () => {
+  assert.strictEqual(analyze('in the 2019/20 (45%) season').results.length, 0);
+});
+test('zero degrees of freedom or n never print NaN', () => {
+  for (const s of ['t(0) = 0, p = .05', 'r(0) = .5, p = .5', 'F(1, 0) = 2, p = .1', 'M = 3.47, n = 0']) {
+    const r = analyze(s);
+    assert.ok(!JSON.stringify(r).includes('NaN'), s);
+  }
+  assert.strictEqual(one('t(0) = 2.0, p = .05').status, 'skip');
+});
+test('more notations parse', () => {
+  assert.strictEqual(one('χ²(3, N = 1,200) = 8.10, p = .044').status, 'ok');
+  assert.strictEqual(one('Χ²(3) = 8.10, p = .044').status, 'ok');
+  assert.strictEqual(one('X2(3) = 8.10, p = .044').status, 'ok');
+  assert.strictEqual(one('t(60) = 2.00 (p = .05)').status, 'ok');
+});

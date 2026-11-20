@@ -6,20 +6,22 @@
 (function (root) {
   const D = typeof require !== 'undefined' ? require('./dist.js') : root.RecountDist;
 
-  const NUM = '[-−]?(?:\\d+\\.?\\d*|\\.\\d+)';
-  const PNUM = '(?:\\d+\\.?\\d*|\\.\\d+)';
-  const PTAIL = '\\s*[,;]?\\s*[pP](?:-value)?\\s*([<>=≤≥])\\s*(' + PNUM + ')';
+  // \d+(?:\.\d*)? has exactly one way to match a digit run (the older \d+\.?\d* had many, which made long digit runs quadratic)
+  const NUM = '[-−]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)';
+  const PNUM = '(?:\\d+(?:\\.\\d*)?|\\.\\d+)';
+  const PTAIL = '\\s*[,;(]?\\s*[pP](?:-value)?\\s*([<>=≤≥])\\s*(' + PNUM + ')';
 
   const TESTS = [
     { kind: 't', re: new RegExp('\\b[tT]\\s*\\(\\s*(\\d+(?:\\.\\d+)?)\\s*\\)\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ df1: +m[1], stat: m[2], op: m[3], p: m[4] }) },
     { kind: 'F', re: new RegExp('\\bF\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+(?:\\.\\d+)?)\\s*\\)\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ df1: +m[1], df2: +m[2], stat: m[3], op: m[4], p: m[5] }) },
-    { kind: 'chi2', re: new RegExp('(?:χ|\\bchi)\\s*-?\\s*(?:[²2]|squared?)?\\s*\\(\\s*(\\d+)(?:\\s*,\\s*[Nn]\\s*=\\s*\\d+)?\\s*\\)\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ df1: +m[1], stat: m[2], op: m[3], p: m[4] }) },
+    { kind: 'chi2', re: new RegExp('(?:[χΧ]\\s*-?\\s*(?:[²2]|squared?)?|\\b[xX]\\s*[²2]|\\bchi\\s*-?\\s*(?:[²2]|squared?)?)\\s*\\(\\s*(\\d+)(?:\\s*,\\s*[Nn]\\s*=\\s*[\\d,]+)?\\s*\\)\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ df1: +m[1], stat: m[2], op: m[3], p: m[4] }) },
     { kind: 'r', re: new RegExp('\\br\\s*\\(\\s*(\\d+)\\s*\\)\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ df1: +m[1], stat: m[2], op: m[3], p: m[4] }) },
     { kind: 'z', re: new RegExp('\\b[zZ]\\s*=\\s*(' + NUM + ')' + PTAIL, 'g'), pick: (m) => ({ stat: m[1], op: m[2], p: m[3] }) },
   ];
 
   const MEAN = '(?:M|[Mm]ean)';
-  const GAP = '(?:(?!\\b' + MEAN + '\\s*=)(?!\\b[nN]\\s*=)(?:[^;.]|\\.\\d)){0,80}?';
+  // between a mean and its n: no sentence end, no other mean or n, no test statistic, and no closing bracket (that ends the group the mean belongs to)
+  const GAP = '(?:(?!\\b' + MEAN + '\\s*=)(?!\\b[nN]\\s*=)(?!\\b[tFrz]\\s*[(=])(?!χ)(?:[^;.)]|\\.\\d|\\)(?=\\s*,))){0,80}?';
   const GRIM_A = new RegExp('\\b' + MEAN + '\\s*=\\s*(' + NUM + ')' + GAP + '\\b[nN]\\s*=\\s*(\\d+)', 'g');
   const GRIM_B = new RegExp('\\b[nN]\\s*=\\s*(\\d+)' + GAP + '\\b' + MEAN + '\\s*=\\s*(' + NUM + ')', 'g');
   const PCT_A = /(?<![\d.])(\d{1,9})\s*(?:\/|of|out of)\s*(\d{1,9})\s*\(\s*(\d{1,9}(?:\.\d{1,9})?)\s*%\s*\)/g;
@@ -60,6 +62,8 @@
   };
 
   function checkTest(kind, t, alpha) {
+    if (!(t.df1 > 0) && kind !== 'z' || (kind === 'F' && !(t.df2 > 0)))
+      return { kind, status: 'skip', title: label(kind, t), detail: 'Degrees of freedom must be above 0, so this cannot be recomputed.', hints: [] };
     const prep = num(t.p), dp = decimals(t.p), r = pRange(kind, t), ok = pConsistent(t.op, prep, dp, r);
     const sigRep = t.op === '>' || t.op === '≥' ? false : (t.op === '=' ? prep < alpha : prep <= alpha);
     const sigComp = r.pmid < alpha;
@@ -88,7 +92,7 @@
 
   function checkMean(meanStr, n, items) {
     const dp = decimals(meanStr), m = num(meanStr), neff = n * items;
-    if (dp < 1) return null;
+    if (dp < 1 || !(n > 0)) return null;
     const label2 = `M = ${meanStr}, n = ${n}` + (items > 1 ? ` (${items} items)` : '');
     if (neff >= Math.pow(10, dp)) {
       return { kind: 'grim', status: 'skip', title: label2, detail: `GRIM cannot test this: with ${neff} whole-number scores, every ${dp}-decimal mean is possible.`, hints: [] };
@@ -124,11 +128,18 @@
     }
     for (const [re, fn] of [[PCT_A, (m) => [+m[1], +m[2], m[3]]], [PCT_B, (m) => [+m[2], +m[3], m[1]]]]) {
       re.lastIndex = 0; let m;
-      while ((m = re.exec(text))) { const [x, y, p] = fn(m); add(m, checkPct(x, y, p)); }
+      while ((m = re.exec(text))) {
+        const [x, y, p] = fn(m);
+        if (/^(19|20)\d\d$/.test(String(x)) && String(y).length === 2) continue;       // "2019/20 (45%)" is a season, not a fraction
+        add(m, checkPct(x, y, p));
+      }
     }
-    found.sort((a, b) => a.start - b.start || b.end - a.end);
+    // overlapping matches: a significance test wins over a mean or percentage, otherwise the earlier one
+    const rank = (f) => (f.kind === 'grim' || f.kind === 'pct' ? 1 : 0);
+    found.sort((a, b) => rank(a) - rank(b) || a.start - b.start || b.end - a.end);
     const results = [];
-    for (const f of found) if (!results.length || f.start >= results[results.length - 1].end) results.push(f);       // overlapping matches: keep the first
+    for (const f of found) if (!results.some((r) => f.start < r.end && r.start < f.end)) results.push(f);
+    results.sort((a, b) => a.start - b.start);
     const summary = { total: results.length, ok: 0, inconsistent: 0, decision: 0, skip: 0 };
     for (const r of results) summary[r.status]++;
     return { results, summary };
